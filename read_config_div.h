@@ -11,7 +11,8 @@
 //typedef struct 
 struct config_struct { 
     char input_dir[MAX_LLIST_NAME_LEN];
-    char output_dir[MAX_LLIST_NAME_LEN];
+    char output_file_N[MAX_LLIST_NAME_LEN];
+    char output_file_div[MAX_LLIST_NAME_LEN];
     int grid_dims;
     double sim_dims;
 };
@@ -50,11 +51,13 @@ void read_config_file(char* config_filename, struct config_struct* conf) {
         if (strstr(buf, "INPUT_DIR ")) {
             read_str_from_config_line(buf, conf->input_dir);
         }
-        if (strstr(buf, "OUTPUT_DIR ")) {
-            read_str_from_config_line(buf, conf->output_dir);
+        if (strstr(buf, "OUTPUT_FILE_N ")) {
+            read_str_from_config_line(buf, conf->output_file_N);
+        }
+        if (strstr(buf, "OUTPUT_FILE_DIV ")) {
+            read_str_from_config_line(buf, conf->output_file_div);
         }
         if (strstr(buf, "GRID_DIMS ")) {
-
             read_int_from_config_line(buf, &conf->grid_dims);
         }
         if (strstr(buf, "SIM_DIMS ")) {

@@ -18,7 +18,7 @@
 #include <math.h>
 
 #include <stdlib.h>
-#include "read_config.h"
+#include "read_config_div.h"
 
 // TODO: set as runtime value
 // PartType1: Dark Matter
@@ -250,6 +250,7 @@ int main (int argc, char **argv) {
 	float* divz = calloc(grid_size, sizeof *divz);
 	printf("Total particles: %lld\n", particle_count);
 	/* Calculate divergences: note that these need correcting for Hubble expansion */
+	/* ****Do I need to use doubles here: difference of two large numbers?*** */
 	for (i=0; i<grid_size; i++){
 	    divx[i] = (N[i]*XVx[i]-X[i]*Vx[i])/(N[i]*XX[i]-X[i]*X[i]);
 	    divy[i] = (N[i]*YVy[i]-Y[i]*Vy[i])/(N[i]*YY[i]-Y[i]*Y[i]);
@@ -270,11 +271,14 @@ int main (int argc, char **argv) {
 	 * Save final divergence arrays
 	 * Slower at this point to change to 3xN rather than Nx3, but makes more sense to co-locate
 	 */
-	for(i = 0; i < grid_size; i++){
-	    fwrite(&divx[i], sizeof(float), 1, fp);
-	    fwrite(&divy[i], sizeof(float), 1, fp);
-	    fwrite(&divz[i], sizeof(float), 1, fp);
-	}
+	//for(i = 0; i < grid_size; i++){
+	//    fwrite(&divx[i], sizeof(float), 1, fp);
+	//    fwrite(&divy[i], sizeof(float), 1, fp);
+	//    fwrite(&divz[i], sizeof(float), 1, fp);
+	//}
+	fwrite(divx, sizeof(float), grid_size, fp);
+	fwrite(divy, sizeof(float), grid_size, fp);
+	fwrite(divz, sizeof(float), grid_size, fp);
 	fclose(fp);
     }
     // Let's be good and free up all the memory, even though the end of the program. 
