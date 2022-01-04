@@ -15,8 +15,9 @@ for i in range(Nfiles):
         coods = np.random.rand(Npart,3) * boxl
         print('min, max coords = ',np.min(coods),np.max(coods))
 
-        ## Random gaussian velocities
-        vels = np.random.normal(loc=0.,scale=1.,size=(Npart,3))
+        ## Sinusoidal velocities
+        vels = np.cos(4.*np.pi*coods/boxl)
+        
 
         f.create_dataset('PartType1/Coordinates',data=coods)
         f.create_dataset('PartType1/Velocity',data=vels)
