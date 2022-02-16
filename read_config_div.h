@@ -12,8 +12,11 @@
 struct config_struct { 
     char input_dir[MAX_LLIST_NAME_LEN];
     char output_file_N[MAX_LLIST_NAME_LEN];
-    char output_file_div[MAX_LLIST_NAME_LEN];
+    char output_file_divx[MAX_LLIST_NAME_LEN];
+    char output_file_divy[MAX_LLIST_NAME_LEN];
+    char output_file_divz[MAX_LLIST_NAME_LEN];
     int grid_dims;
+    int slice_dim;
     double sim_dims;
 };
 
@@ -54,11 +57,20 @@ void read_config_file(char* config_filename, struct config_struct* conf) {
         if (strstr(buf, "OUTPUT_FILE_N ")) {
             read_str_from_config_line(buf, conf->output_file_N);
         }
-        if (strstr(buf, "OUTPUT_FILE_DIV ")) {
-            read_str_from_config_line(buf, conf->output_file_div);
+        if (strstr(buf, "OUTPUT_FILE_DIVX ")) {
+            read_str_from_config_line(buf, conf->output_file_divx);
+        }
+        if (strstr(buf, "OUTPUT_FILE_DIVY ")) {
+            read_str_from_config_line(buf, conf->output_file_divy);
+        }
+        if (strstr(buf, "OUTPUT_FILE_DIVZ ")) {
+            read_str_from_config_line(buf, conf->output_file_divz);
         }
         if (strstr(buf, "GRID_DIMS ")) {
             read_int_from_config_line(buf, &conf->grid_dims);
+        }
+        if (strstr(buf, "SLICE_DIM ")) {
+            read_int_from_config_line(buf, &conf->slice_dim);
         }
         if (strstr(buf, "SIM_DIMS ")) {
             read_double_from_config_line(buf, &conf->sim_dims);

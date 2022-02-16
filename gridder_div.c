@@ -20,26 +20,26 @@
 #include <stdlib.h>
 #include "read_config_div.h"
 
-// TODO: set as runtime value
+// TODO: set as runtime value: if only this were python:-!
 // PartType1: Dark Matter
 #define DATASETNAME_POS "/PartType1/Coordinates"  // dataset within hdf5 file 
-#define DATASETNAME_VEL "/PartType1/Velocity"  // dataset within hdf5 file 
+#define DATASETNAME_VEL "/PartType1/Velocities"  // dataset within hdf5 file 
 
 
 // function initialisers
 int count_files(const char *, const char *);
 const char *get_filename_ext(const char *);
 int offset(int, int, int, int);
-//void NGP(int *, int, double, double, double);
+//void NGP(int *, int, float, float, float);
 void NGP(int *,                        // sum of number
-	 double *, double *, double *,    // sum of pos
-	 double *, double *, double *,    // sum of vel
-	 double *, double *, double *,    // sum of pos * pos
-	 double *, double *, double *,    // sum of pos * vel
+	 float *, float *, float *,    // sum of pos
+	 float *, float *, float *,    // sum of vel
+	 float *, float *, float *,    // sum of pos * pos
+	 float *, float *, float *,    // sum of pos * vel
 	 int,                          // size of grid along each axis
-	 double, double, double,          // input grid position
-	 double, double, double,          // input position
-	 double, double, double);         // input velocity
+	 float, float, float,          // input grid position
+	 float, float, float,          // input position
+	 float, float, float);         // input velocity
 
 int main (int argc, char **argv) {
 
@@ -55,19 +55,23 @@ int main (int argc, char **argv) {
 
     char * input_directory = config.input_dir; 
     char * output_file_N = config.output_file_N;
-    char * output_file_div = config.output_file_div;
+    char * output_file_divx = config.output_file_divx;
+    char * output_file_divy = config.output_file_divy;
+    char * output_file_divz = config.output_file_divz;
 
     /*
      * Initialise weight grid
      */
-    int grid_dims = config.grid_dims; //grid_size + 1; 
-    double sim_dims = config.sim_dims;  // simulation dimensions
+    int grid_dims = config.grid_dims; //grid_size + 1;
+    int slice_dim = config.slice_dim;  // width of slice in x-direction
+    float sim_dims = config.sim_dims;  // simulation dimensions
     
     hid_t 	file, dataset_pos, dataset_vel, dataspace;   // handles
     herr_t 	status;
     int		status_n;
     hsize_t 	dims[2];           			// dataset dimensions
-	
+
+#ifndef NO_MPI
     /*
      * Initialize MPI
      */
@@ -80,18 +84,23 @@ int main (int argc, char **argv) {
     int root_process = 0;  // set root process to zero processor  
 
     if(mpi_rank == 0){
+#endif
         printf("\nInput directory: %s",input_directory);
 	printf("\nOutput file for density: %s", output_file_N);
-	printf("\nOutput file for divergences: %s", output_file_div);
+	printf("\nOutput file for divx: %s", output_file_divx);
+	printf("\nOutput file for divy: %s", output_file_divy);
+	printf("\nOutput file for divz: %s", output_file_divz);
         printf("\nGrid dimensions: %d", grid_dims);
+        printf("\nGrid slice dimension: %d", slice_dim);
         printf("\nSimulation dimensions: %lf", sim_dims);
+#ifndef NO_MPI
     }
+#endif
     /*
      * Count hdf5 files in specified directory
      */		
     const char * extension = "hdf5";
-    int file_count = count_files(input_directory,extension);
-    
+    int file_count = count_files(input_directory,extension);   
     /*
      * Find hdf5 files in specified directory
      */
@@ -110,177 +119,274 @@ int main (int argc, char **argv) {
     }
     closedir(dirp);
 
+#ifndef NO_MPI
     /*
      *  find number of files for given processor
      */
     int proc_files = file_count / mpi_size;
     if(mpi_rank < fmod(file_count,mpi_size)) proc_files++;
-
+#endif
+    
     /*
      * A 3D array is too big for native initialisation, and a pain using malloc.
      * So, create a 1D array and use a custom offset function (see end)
      */
-    long int grid_size = pow(grid_dims, 3); 	
+    //long int grid_size = pow(grid_dims, 3); 	// Amended to calculate in slices to save memory.
+    long int grid_size = grid_dims*grid_dims*slice_dim; 	
     char * fullname;
     long long int particle_count = 0;
     long long int particle_count_slave = 0;
     int *N = calloc(grid_size, sizeof *N);
-    double *X = calloc(grid_size, sizeof *X);
-    double *Y = calloc(grid_size, sizeof *Y);
-    double *Z = calloc(grid_size, sizeof *Z);
-    double *Vx = calloc(grid_size, sizeof *Vx);
-    double *Vy = calloc(grid_size, sizeof *Vy);
-    double *Vz = calloc(grid_size, sizeof *Vz);
-    double *XX = calloc(grid_size, sizeof *XX);
-    double *YY = calloc(grid_size, sizeof *YY);
-    double *ZZ = calloc(grid_size, sizeof *ZZ);
-    double *XVx = calloc(grid_size, sizeof *XVx);
-    double *YVy = calloc(grid_size, sizeof *YVy);
-    double *ZVz = calloc(grid_size, sizeof *ZVz);
+    float *X = calloc(grid_size, sizeof *X);
+    float *Y = calloc(grid_size, sizeof *Y);
+    float *Z = calloc(grid_size, sizeof *Z);
+    float *Vx = calloc(grid_size, sizeof *Vx);
+    float *Vy = calloc(grid_size, sizeof *Vy);
+    float *Vz = calloc(grid_size, sizeof *Vz);
+    float *XX = calloc(grid_size, sizeof *XX);
+    float *YY = calloc(grid_size, sizeof *YY);
+    float *ZZ = calloc(grid_size, sizeof *ZZ);
+    float *XVx = calloc(grid_size, sizeof *XVx);
+    float *YVy = calloc(grid_size, sizeof *YVy);
+    float *ZVz = calloc(grid_size, sizeof *ZVz);
     int *N_slave = calloc(grid_size, sizeof *N);
-    double *X_slave = calloc(grid_size, sizeof *X);
-    double *Y_slave = calloc(grid_size, sizeof *Y);
-    double *Z_slave = calloc(grid_size, sizeof *Z);
-    double *Vx_slave = calloc(grid_size, sizeof *Vx);
-    double *Vy_slave = calloc(grid_size, sizeof *Vy);
-    double *Vz_slave = calloc(grid_size, sizeof *Vz);
-    double *XX_slave = calloc(grid_size, sizeof *XX);
-    double *YY_slave = calloc(grid_size, sizeof *YY);
-    double *ZZ_slave = calloc(grid_size, sizeof *ZZ);
-    double *XVx_slave = calloc(grid_size, sizeof *XVx);
-    double *YVy_slave = calloc(grid_size, sizeof *YVy);
-    double *ZVz_slave = calloc(grid_size, sizeof *ZVz);
+    float *X_slave = calloc(grid_size, sizeof *X);
+    float *Y_slave = calloc(grid_size, sizeof *Y);
+    float *Z_slave = calloc(grid_size, sizeof *Z);
+    float *Vx_slave = calloc(grid_size, sizeof *Vx);
+    float *Vy_slave = calloc(grid_size, sizeof *Vy);
+    float *Vz_slave = calloc(grid_size, sizeof *Vz);
+    float *XX_slave = calloc(grid_size, sizeof *XX);
+    float *YY_slave = calloc(grid_size, sizeof *YY);
+    float *ZZ_slave = calloc(grid_size, sizeof *ZZ);
+    float *XVx_slave = calloc(grid_size, sizeof *XVx);
+    float *YVy_slave = calloc(grid_size, sizeof *YVy);
+    float *ZVz_slave = calloc(grid_size, sizeof *ZVz);
 
-    for(i = mpi_rank; i<file_count; i+=mpi_size){
-	printf("%d %s\n",i,files[i]);
-	fullname = malloc(sizeof(char) * (strlen(input_directory) + strlen(files[i]) + 1));  // allocate space for concatenated full name and location
-	*fullname = '\0';
-	strcat(fullname, input_directory);  // concatenate directory and filename strings
-	strcat(fullname, files[i]);
-	//  Open the hdf5 file and dataset
-	file = H5Fopen(fullname, H5F_ACC_RDONLY, H5P_DEFAULT);
-	dataset_pos = H5Dopen(file, DATASETNAME_POS, H5P_DEFAULT);
-	dataset_vel = H5Dopen(file, DATASETNAME_VEL, H5P_DEFAULT);
-	free(fullname);
-	dataspace = H5Dget_space(dataset_pos);    // dataspace handle
-	status_n  = H5Sget_simple_extent_dims(dataspace, dims, NULL);  // get dataspace dimensions
-	/*
-	 *  Initialise data buffer
-	 */
-	int rows = dims[0];  // Number of particles?
-	int cols = dims[1];  // Number of dimensions (=3)?
-	particle_count_slave += rows;
-	printf("%d: %d particles, %lld total\n", i, rows, particle_count_slave);
-	double **data_pos; 
-	double **data_vel; 
-	/* 
-	 * Allocate memory for new double array[row][col] 
-	 */
-	/* First allocate the memory for the top-level array (rows).
-	   Make sure you use the sizeof a *pointer* to your data type. */
-	data_pos = (double**) calloc(rows, sizeof(double*));  // Done this roundabout way in case not 3 dimensional
-	data_vel = (double**) calloc(rows, sizeof(double*));
-	/* Allocate a contiguous chunk of memory for the array data values.
-	   Use the sizeof the data type. */
-	data_pos[0] = (double*) calloc(cols*rows, sizeof(double));
-	data_vel[0] = (double*) calloc(cols*rows, sizeof(double));
-	/* Set the pointers in the top-level (row) array to the
-	   correct memory locations in the data value chunk. */
-	for (j=1; j < rows; j++) data_pos[j] = data_pos[0] + j*cols;
-	for (j=1; j < rows; j++) data_vel[j] = data_vel[0] + j*cols;
-	/*
-	 * Read dataset back.
-	 */
-	status = H5Dread(dataset_pos, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &data_pos[0][0]);
-	status = H5Dread(dataset_vel, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &data_vel[0][0]);
-	/*
-	 * Close datasets, dataspace and file
-	 */
-	H5Dclose(dataset_pos);
-	H5Dclose(dataset_vel);
-	H5Sclose(dataspace);
-	H5Fclose(file);
-	/*
-	 * Assign to grid.
-         * This version accumulates quantities needed to calculate the divergence
-	 */
-	double xgrid, ygrid, zgrid;
-	double ratio = grid_dims / sim_dims;  // ratio of grid to simulation dimensions
-	for(j = 0; j < rows; j++){  // loop through data rows 
-	    xgrid = data_pos[j][0] * ratio; // x grid position
-	    ygrid = data_pos[j][1] * ratio; // y grid position
-	    zgrid = data_pos[j][2] * ratio; // z grid position
-	    NGP(N_slave,                            // sum of number
-		X_slave, Y_slave, Z_slave,          // sum of pos
-		Vx_slave, Vy_slave, Vz_slave,       // sum of vel
-		XX_slave, YY_slave, ZZ_slave,       // sum of pos * pos
-		XVx_slave, YVy_slave, ZVz_slave,    // sum of pos * vel
-		grid_dims,                          // size of grid along each axis
-		xgrid, ygrid, zgrid,                // position in grid coordinates
-		data_pos[j][0], data_pos[j][1], data_pos[j][2],  // input position
-		data_vel[j][0], data_vel[j][1], data_vel[j][2]);  // input velocity
-		}
-	printf("%d complete\n", i);
-	free(data_pos[0]);
-	free(data_pos);
-	free(data_vel[0]);
-	free(data_vel);
-	}
-    /* Accumulate sums over all ranks */
-    MPI_Reduce(&particle_count_slave, &particle_count, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(N_slave, N, grid_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(X_slave, X, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(Y_slave, Y, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(Z_slave, Z, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(Vx_slave, Vx, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(Vy_slave, Vy, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(Vz_slave, Vz, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(XX_slave, XX, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(YY_slave, YY, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(ZZ_slave, ZZ, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(XVx_slave, XVx, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(YVy_slave, YVy, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(ZVz_slave, ZVz, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    /*
-     * Now on the master node, we can calculate our statistics and write out
-     */
+    FILE *fp_N, *fp_divx, *fp_divy, *fp_divz;
+#ifndef NO_MPI
     if(mpi_rank == 0){
-	double* divx = calloc(grid_size, sizeof *divx);
-	double* divy = calloc(grid_size, sizeof *divy);
-	double* divz = calloc(grid_size, sizeof *divz);
-	printf("Total particles: %lld\n", particle_count);
-	/* Calculate divergences: note that these need correcting for Hubble expansion */
-	/* ****Do I need to use doubles here: difference of two large numbers?*** */
-	for (i=0; i<grid_size; i++){
-	    divx[i] = (N[i]*XVx[i]-X[i]*Vx[i])/(N[i]*XX[i]-X[i]*X[i]);
-	    divy[i] = (N[i]*YVy[i]-Y[i]*Vy[i])/(N[i]*YY[i]-Y[i]*Y[i]);
-	    divz[i] = (N[i]*ZVz[i]-Z[i]*Vz[i])/(N[i]*ZZ[i]-Z[i]*Z[i]);
+#endif
+	/*
+	 * Open output files
+	 */
+	fp_N = fopen(output_file_N, "wb");
+	if (fp_N == NULL) printf("%s could not be opened.\n",output_file_N);		
+	fp_divx = fopen(output_file_divx, "wb");
+	if (fp_divx == NULL) printf("%s could not be opened.\n",output_file_divx);
+	fp_divy = fopen(output_file_divy, "wb");
+	if (fp_divy == NULL) printf("%s could not be opened.\n",output_file_divy);
+	fp_divz = fopen(output_file_divz, "wb");
+	if (fp_divz == NULL) printf("%s could not be opened.\n",output_file_divz);
+#ifndef NO_MPI
+    }
+#endif
+    
+    /*
+     * Loop over slices
+     * Ideally we would read in the data once and save, but as we are looking to minimise memory,
+     * we will read in each file once for every slice of the grid.
+     */
+    float xgrid_min=0., xgrid_max;
+    xgrid_max=(float)slice_dim;
+    while (xgrid_min<grid_dims) {
+	/* 
+	 * Loop over iput data files
+	 */
+	int i_file;
+#ifdef NO_MPI
+	for(i_file = 0; i_file<file_count; i_file ++){
+#else
+	for(i_file = mpi_rank; i_file<file_count; i_file +=mpi_size){
+#endif
+	    printf("%d %s\n",i_file,files[i_file]);
+	    fullname = malloc(sizeof(char) * (strlen(input_directory) + strlen(files[i_file]) + 1));  // allocate space for concatenated full name and location
+	    *fullname = '\0';
+	    strcat(fullname, input_directory);  // concatenate directory and filename strings
+	    strcat(fullname, files[i_file]);
+	    //  Open the hdf5 file and dataset
+	    file = H5Fopen(fullname, H5F_ACC_RDONLY, H5P_DEFAULT);
+	    dataset_pos = H5Dopen(file, DATASETNAME_POS, H5P_DEFAULT);
+	    dataset_vel = H5Dopen(file, DATASETNAME_VEL, H5P_DEFAULT);
+	    free(fullname);
+	    dataspace = H5Dget_space(dataset_pos);    // dataspace handle
+	    status_n  = H5Sget_simple_extent_dims(dataspace, dims, NULL);  // get dataspace dimensions
+	    /*
+	     *  Initialise data buffer
+	     */
+	    int rows = dims[0];  // Number of particles?
+	    int cols = dims[1];  // Number of dimensions (=3)?
+	    particle_count_slave += rows;
+	    printf("%d: %d particles, %lld total\n", i_file, rows, particle_count_slave);
+	    float **data_pos; 
+	    float **data_vel; 
+	    /* 
+	     * Allocate memory for new float array[row][col] 
+	     */
+	    /* First allocate the memory for the top-level array (rows).
+	       Make sure you use the sizeof a *pointer* to your data type. */
+	    data_pos = (float**) calloc(rows, sizeof(float*));  // Done this roundabout way in case not 3 dimensional
+	    data_vel = (float**) calloc(rows, sizeof(float*));
+	    /* Allocate a contiguous chunk of memory for the array data values.
+	       Use the sizeof the data type. */
+	    data_pos[0] = (float*) calloc(cols*rows, sizeof(float));
+	    data_vel[0] = (float*) calloc(cols*rows, sizeof(float));
+	    /* Set the pointers in the top-level (row) array to the
+	       correct memory locations in the data value chunk. */
+	    for (j=1; j < rows; j++) data_pos[j] = data_pos[0] + j*cols;
+	    for (j=1; j < rows; j++) data_vel[j] = data_vel[0] + j*cols;
+	    /*
+	     * Read dataset back.
+	     */
+	    status = H5Dread(dataset_pos, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &data_pos[0][0]);
+	    status = H5Dread(dataset_vel, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &data_vel[0][0]);
+	    /*
+	     * Close datasets, dataspace and file
+	     */
+	    H5Dclose(dataset_pos);
+	    H5Dclose(dataset_vel);
+	    H5Sclose(dataspace);
+	    H5Fclose(file);
+
+	    /*
+	     * Assign to grid.
+	     * This version accumulates quantities needed to calculate the divergence
+	     */
+	    float xgrid, ygrid, zgrid;
+	    float ratio = grid_dims / sim_dims;  // ratio of grid to simulation dimensions
+	    for(j = 0; j < rows; j++){  // loop through data rows 
+		xgrid = data_pos[j][0] * ratio; // x grid position
+		if (xgrid<xgrid_min || xgrid>=xgrid_max) break;
+		xgrid -= xgrid_min;  // position relative to slice
+		ygrid = data_pos[j][1] * ratio; // y grid position
+		zgrid = data_pos[j][2] * ratio; // z grid position
+		NGP(N_slave,                            // sum of number
+		    X_slave, Y_slave, Z_slave,          // sum of pos
+		    Vx_slave, Vy_slave, Vz_slave,       // sum of vel
+		    XX_slave, YY_slave, ZZ_slave,       // sum of pos * pos
+		    XVx_slave, YVy_slave, ZVz_slave,    // sum of pos * vel
+		    grid_dims,                          // size of grid along each axis
+		    xgrid, ygrid, zgrid,                // position in grid coordinates
+		    data_pos[j][0], data_pos[j][1], data_pos[j][2],  // input position
+		    data_vel[j][0], data_vel[j][1], data_vel[j][2]);  // input velocity
+	    }
+	    printf("%d complete\n", i);
+	    free(data_pos[0]);
+	    free(data_pos);
+	    free(data_vel[0]);
+	    free(data_vel);
+	}
+	/* Accumulate sums over all ranks */
+#ifdef NO_MPI
+	N=N_slave;
+	X=X_slave;
+	Y=Y_slave;
+	Z=Z_slave;
+	Vx=Vx_slave;
+	Vy=Vy_slave;
+	Vz=Vz_slave;
+	XX=XX_slave;
+	YY=YY_slave;
+	ZZ=ZZ_slave;
+	XVx=XVx_slave;
+	YVy=YVy_slave;
+	ZVz=ZVz_slave;
+#else
+	/*
+	 * How does this work, with the MPI_Reduce being embedded within a loop over files?
+	 */
+	MPI_Reduce(&particle_count_slave, &particle_count, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(N_slave, N, grid_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(X_slave, X, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(Y_slave, Y, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(Z_slave, Z, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(Vx_slave, Vx, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(Vy_slave, Vy, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(Vz_slave, Vz, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(XX_slave, XX, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(YY_slave, YY, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(ZZ_slave, ZZ, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(XVx_slave, XVx, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(YVy_slave, YVy, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(ZVz_slave, ZVz, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+	/*
+	 * Now on the master node, we can calculate our statistics and write out
+	 */
+	if(mpi_rank == 0){
+#endif
+	    float* divx = calloc(grid_size, sizeof *divx);
+	    float* divy = calloc(grid_size, sizeof *divy);
+	    float* divz = calloc(grid_size, sizeof *divz);
+	    printf("Total particles: %lld\n", particle_count);
+	    /* Calculate divergences: note that these need correcting for Hubble expansion */
+	    /* ****Do I need to use floats here: difference of two large numbers?*** */
+	    for (i=0; i<grid_size; i++){
+		divx[i] = (N[i]*XVx[i]-X[i]*Vx[i])/(N[i]*XX[i]-X[i]*X[i]);
+		divy[i] = (N[i]*YVy[i]-Y[i]*Vy[i])/(N[i]*YY[i]-Y[i]*Y[i]);
+		divz[i] = (N[i]*ZVz[i]-Z[i]*Vz[i])/(N[i]*ZZ[i]-Z[i]*Z[i]);
+	    }
+	    /*
+	     * Write to output files
+	     */
+	    fwrite(N, sizeof(int), grid_size, fp_N);
+	    fwrite(divx, sizeof(float), grid_size, fp_divx);
+	    fwrite(divy, sizeof(float), grid_size, fp_divy);
+	    fwrite(divz, sizeof(float), grid_size, fp_divz);
+	    
+	    printf("Finished processing slice %f to %f.\n",xgrid_min,xgrid_max);
+#ifndef NO_MPI
+	}
+#endif
+	/*
+	 * Reset arrays to zero.
+	 * I think sufficient to do this for the slave arrays,but do it for all anyway
+	 */
+	for (i=0; i<grid_size; i++) {
+	    N_slave[i]=0;
+	    X_slave[i]=(float)0.;
+	    Y_slave[i]=(float)0.;
+	    Z_slave[i]=(float)0.;
+	    Vx_slave[i]=(float)0.;
+	    Vy_slave[i]=(float)0.;
+	    Vz_slave[i]=(float)0.;
+	    XX_slave[i]=(float)0.;
+	    YY_slave[i]=(float)0.;
+	    ZZ_slave[i]=(float)0.;
+	    XVx_slave[i]=(float)0.;
+	    YVy_slave[i]=(float)0.;
+	    ZVz_slave[i]=(float)0.;
+	    N[i]=0;
+	    X[i]=(float)0.;
+	    Y[i]=(float)0.;
+	    Z[i]=(float)0.;
+	    Vx[i]=(float)0.;
+	    Vy[i]=(float)0.;
+	    Vz[i]=(float)0.;
+	    XX[i]=(float)0.;
+	    YY[i]=(float)0.;
+	    ZZ[i]=(float)0.;
+	    XVx[i]=(float)0.;
+	    YVy[i]=(float)0.;
+	    ZVz[i]=(float)0.;
 	}
 	/*
-	 * Write to output files
+	 * Update slice counters
 	 */
-	FILE *fp;		
-	fp = fopen(output_file_N, "wb");
-	if (fp == NULL) printf("%s could not be opened.\n",output_file_N);		
-	// Save final weight array
-	fwrite(N, sizeof(int), grid_size, fp);
-	fclose(fp);
-	fp = fopen(output_file_div, "wb");
-	if (fp == NULL) printf("%s could not be opened.\n",output_file_div);		
-	/* 
-	 * Save final divergence arrays
-	 * Slower at this point to change to 3xN rather than Nx3, but makes more sense to co-locate
-	 */
-	//for(i = 0; i < grid_size; i++){
-	//    fwrite(&divx[i], sizeof(double), 1, fp);
-	//    fwrite(&divy[i], sizeof(double), 1, fp);
-	//    fwrite(&divz[i], sizeof(double), 1, fp);
-	//}
-	fwrite(divx, sizeof(double), grid_size, fp);
-	fwrite(divy, sizeof(double), grid_size, fp);
-	fwrite(divz, sizeof(double), grid_size, fp);
-	fclose(fp);
+	xgrid_min+=(float)slice_dim;
+	xgrid_max=xgrid_min+(float)slice_dim;
+	// End of loop over slices
     }
+    // Close output files
+#ifndef NO_MPI
+    if(mpi_rank == 0){
+#endif
+	fclose(fp_N);
+	fclose(fp_divx);
+	fclose(fp_divy);
+	fclose(fp_divz);
+#ifndef NO_MPI
+    }
+#endif
     // Let's be good and free up all the memory, even though the end of the program. 
     free(N_slave);
     free(X_slave);
@@ -310,7 +416,9 @@ int main (int argc, char **argv) {
     free(ZVz);
     free(files[0]);
     free(files);
+#ifndef NO_MPI
     ierr = MPI_Finalize();
+#endif
     return 0;
 }
 
@@ -319,14 +427,14 @@ int main (int argc, char **argv) {
  * Nearest Grid Point assignment
  */
 void NGP(int   *N,                              // sum of number
-	 double *X, double *Y, double *Z,          // sum of pos
-	 double *Vx, double *Vy, double *Vz,       // sum of vel
-	 double *XX, double *YY, double *ZZ,       // sum of pos * pos
-	 double *XVx, double *YVy, double *ZVz,    // sum of pos * vel
+	 float *X, float *Y, float *Z,          // sum of pos
+	 float *Vx, float *Vy, float *Vz,       // sum of vel
+	 float *XX, float *YY, float *ZZ,       // sum of pos * pos
+	 float *XVx, float *YVy, float *ZVz,    // sum of pos * vel
 	 int dims,                              // size of grid along each axis
-	 double xgrid, double ygrid, double zgrid, // input grid position
-	 double x, double y, double z,             // input position
-	 double vx, double vy, double vz){         // input velocity
+	 float xgrid, float ygrid, float zgrid, // input grid position
+	 float x, float y, float z,             // input position
+	 float vx, float vy, float vz){         // input velocity
     int loc;
     loc = offset((int) xgrid, (int) ygrid, (int) zgrid, dims);   // location in 1-d array
     N[loc] += 1;
@@ -402,4 +510,9 @@ const char *get_filename_ext(const char * filename) {
 /*
  * Given a 3D array (grid_dims^3) flattened to 1D, return offset for given 3D coordinates in flat array
  */
-int offset(int x, int y, int z, int grid_dims) { return ( z * grid_dims * grid_dims ) + ( y * grid_dims ) + x ; }
+/* 
+ * Incorrect F-style ordering
+ int offset(int x, int y, int z, int grid_dims) { return ( z * grid_dims * grid_dims ) + ( y * grid_dims ) + x ; }
+*/
+int offset(int x, int y, int z, int grid_dims) {
+    return (x * grid_dims + y) * grid_dims + z ; }

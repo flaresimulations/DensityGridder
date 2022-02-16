@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH -p cosma7
+#SBATCH -p cosma7-shm
 #SBATCH -A dp004
-#SBATCH --job-name=density_gridder_div_example
+#SBATCH --job-name=density_gridder_div_eagle
 #SBATCH --output=logs/grid_out_ref.%J
 #SBATCH --error=logs/grid_err_ref.%J
-#SBATCH -t 00:35
-#SBATCH --ntasks 24
+#SBATCH -t 60:00
+#SBATCH --ntasks 28
 # #SBATCH --exclusive
 
 module purge
@@ -14,7 +14,7 @@ module load gsl
 module load openmpi
 module load hdf5 
 
-mpicc -I/usr/include/hdf5/serial -o gridder_div.x -L/usr/lib/x86_64-linux-gnu/hdf5/serial gridder_div.c -lhdf5 -lm -lgmp
+mpicc -g check-pointers=rw -o gridder_div.x gridder_div.c -lhdf5 -lm -lgmp
 
-mpirun gridder_div.x configs/example_config.txt
+mpirun gridder_div.x configs/eagle_config.txt
 
