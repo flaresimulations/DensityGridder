@@ -65,7 +65,8 @@ int main (int argc, char **argv) {
     int grid_dims = config.grid_dims; //grid_size + 1;
     int slice_dim = config.slice_dim;  // width of slice in x-direction
     float sim_dims = config.sim_dims;  // simulation dimensions
-    
+    float ratio = grid_dims / sim_dims;  // ratio of grid to simulation dimensions
+
     hid_t 	file, dataset_pos, dataset_vel, dataspace;   // handles
     herr_t 	status;
     int		status_n;
@@ -93,6 +94,7 @@ int main (int argc, char **argv) {
         printf("\nGrid dimensions: %d", grid_dims);
         printf("\nGrid slice dimension: %d", slice_dim);
         printf("\nSimulation dimensions: %lf", sim_dims);
+        printf("\nConversion ratio from sim pos to grid pos: %lf\n", ratio);
 #ifndef NO_MPI
     }
 #endif
@@ -136,6 +138,9 @@ int main (int argc, char **argv) {
     char * fullname;
     long long int particle_count = 0;
     long long int particle_count_slave = 0;
+    long long int particle_count_used = 0;
+    long long int particle_count_used_total = 0;
+    long long int particle_count_slave_used = 0;
     int *N = calloc(grid_size, sizeof *N);
     float *X = calloc(grid_size, sizeof *X);
     float *Y = calloc(grid_size, sizeof *Y);
@@ -162,6 +167,9 @@ int main (int argc, char **argv) {
     float *XVx_slave = calloc(grid_size, sizeof *XVx);
     float *YVy_slave = calloc(grid_size, sizeof *YVy);
     float *ZVz_slave = calloc(grid_size, sizeof *ZVz);
+    // diagnostics to check correct sim_size used
+    float xmin_slave, xmin, ymin_slave, ymin, zmin_slave, zmin;
+    float xmax_slave, xmax, ymax_slave, ymax, zmax_slave, zmax;
 
     FILE *fp_N, *fp_divx, *fp_divy, *fp_divz;
 #ifndef NO_MPI
@@ -189,7 +197,7 @@ int main (int argc, char **argv) {
      */
     float xgrid_min=0., xgrid_max;
     xgrid_max=(float)slice_dim;
-    while (xgrid_min<grid_dims) {
+    while (xgrid_min<0.999*grid_dims) {
 	/* 
 	 * Loop over iput data files
 	 */
@@ -199,7 +207,7 @@ int main (int argc, char **argv) {
 #else
 	for(i_file = mpi_rank; i_file<file_count; i_file +=mpi_size){
 #endif
-	    printf("%d %s\n",i_file,files[i_file]);
+	    //printf("\n%d %s",i_file,files[i_file]);
 	    fullname = malloc(sizeof(char) * (strlen(input_directory) + strlen(files[i_file]) + 1));  // allocate space for concatenated full name and location
 	    *fullname = '\0';
 	    strcat(fullname, input_directory);  // concatenate directory and filename strings
@@ -217,7 +225,7 @@ int main (int argc, char **argv) {
 	    int rows = dims[0];  // Number of particles?
 	    int cols = dims[1];  // Number of dimensions (=3)?
 	    particle_count_slave += rows;
-	    printf("%d: %d particles, %lld total\n", i_file, rows, particle_count_slave);
+	    //printf("%d: %d particles, %lld total\n", i_file, rows, particle_count_slave);
 	    float **data_pos; 
 	    float **data_vel; 
 	    /* 
@@ -253,10 +261,18 @@ int main (int argc, char **argv) {
 	     * This version accumulates quantities needed to calculate the divergence
 	     */
 	    float xgrid, ygrid, zgrid;
-	    float ratio = grid_dims / sim_dims;  // ratio of grid to simulation dimensions
-	    for(j = 0; j < rows; j++){  // loop through data rows 
+	    xmin_slave=1000.; ymin_slave=1000.; zmin_slave=1000.;
+	    xmax_slave=-1000.; ymax_slave=-1000.; zmax_slave=-1000.;
+	    for(j = 0; j < rows; j++){  // loop through data rows
+		xmin_slave=fmin(xmin_slave,data_pos[j][0]);
+		xmax_slave=fmax(xmax_slave,data_pos[j][0]);
+		ymin_slave=fmin(ymin_slave,data_pos[j][1]);
+		ymax_slave=fmax(ymax_slave,data_pos[j][1]);
+		zmin_slave=fmin(zmin_slave,data_pos[j][2]);
+		zmax_slave=fmax(zmax_slave,data_pos[j][2]);
 		xgrid = data_pos[j][0] * ratio; // x grid position
-		if (xgrid<xgrid_min || xgrid>=xgrid_max) break;
+		if (xgrid<xgrid_min || xgrid>=xgrid_max) continue;
+		particle_count_slave_used++;
 		xgrid -= xgrid_min;  // position relative to slice
 		ygrid = data_pos[j][1] * ratio; // y grid position
 		zgrid = data_pos[j][2] * ratio; // z grid position
@@ -270,7 +286,7 @@ int main (int argc, char **argv) {
 		    data_pos[j][0], data_pos[j][1], data_pos[j][2],  // input position
 		    data_vel[j][0], data_vel[j][1], data_vel[j][2]);  // input velocity
 	    }
-	    printf("%d complete\n", i);
+	    //printf("\nRank %d completed", mpi_rank);
 	    free(data_pos[0]);
 	    free(data_pos);
 	    free(data_vel[0]);
@@ -292,10 +308,14 @@ int main (int argc, char **argv) {
 	YVy=YVy_slave;
 	ZVz=ZVz_slave;
 #else
-	/*
-	 * How does this work, with the MPI_Reduce being embedded within a loop over files?
-	 */
+	MPI_Reduce(&xmin_slave, &xmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&xmax_slave, &xmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&ymin_slave, &ymin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&ymax_slave, &ymax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&zmin_slave, &zmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&zmax_slave, &zmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
 	MPI_Reduce(&particle_count_slave, &particle_count, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&particle_count_slave_used, &particle_count_used, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI_Reduce(N_slave, N, grid_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI_Reduce(X_slave, X, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI_Reduce(Y_slave, Y, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -314,12 +334,19 @@ int main (int argc, char **argv) {
 	 */
 	if(mpi_rank == 0){
 #endif
+	    if (xgrid_min<0.001) {
+		printf("x-position range of all particles is (%f, %f)\n",xmin,xmax);
+		printf("y-position range of all particles is (%f, %f)\n",ymin,ymax);
+		printf("z-position range of all particles is (%f, %f)\n",zmin,zmax);
+	    }
 	    float* divx = calloc(grid_size, sizeof *divx);
 	    float* divy = calloc(grid_size, sizeof *divy);
 	    float* divz = calloc(grid_size, sizeof *divz);
 	    printf("Total particles: %lld\n", particle_count);
+	    particle_count_used_total+=particle_count_used;
+	    printf("Total particles currently processed: %lld\n", particle_count_used_total);
 	    /* Calculate divergences: note that these need correcting for Hubble expansion */
-	    /* ****Do I need to use floats here: difference of two large numbers?*** */
+	    /* ****Do I need to use doubles here: difference of two large numbers?*** */
 	    for (i=0; i<grid_size; i++){
 		divx[i] = (N[i]*XVx[i]-X[i]*Vx[i])/(N[i]*XX[i]-X[i]*X[i]);
 		divy[i] = (N[i]*YVy[i]-Y[i]*Vy[i])/(N[i]*YY[i]-Y[i]*Y[i]);
@@ -341,6 +368,10 @@ int main (int argc, char **argv) {
 	 * Reset arrays to zero.
 	 * I think sufficient to do this for the slave arrays,but do it for all anyway
 	 */
+	particle_count_slave=0;
+	particle_count_slave_used=0;
+	particle_count=0; // Reset each slice
+	particle_count_used=0;
 	for (i=0; i<grid_size; i++) {
 	    N_slave[i]=0;
 	    X_slave[i]=(float)0.;
@@ -436,20 +467,27 @@ void NGP(int   *N,                              // sum of number
 	 float x, float y, float z,             // input position
 	 float vx, float vy, float vz){         // input velocity
     int loc;
+    float xrel, yrel, zrel;
+    //int loc_trace=1118; // Used to print diagnostic info to debug
     loc = offset((int) xgrid, (int) ygrid, (int) zgrid, dims);   // location in 1-d array
+    //if (loc==loc_trace) printf("loc %d: pos (%f, %f, %f), vel (%f, %f, %f)\n",loc,x,y,z,vx,vy,vz);
     N[loc] += 1;
-    X[loc] += x;
-    Y[loc] += y;
-    Z[loc] += z;
+    // Measure relative positions from 0 to 1 to avoid large numbers in the accumulating sums below
+    xrel = x-(int)xgrid;
+    yrel = y-(int)ygrid;
+    zrel = z-(int)zgrid;
+    X[loc] += xrel;
+    Y[loc] += yrel;
+    Z[loc] += zrel;
     Vx[loc] += vx;
     Vy[loc] += vy;
     Vz[loc] += vz;
-    XX[loc] += x*x;
-    YY[loc] += y*y;
-    ZZ[loc] += z*z;
-    XVx[loc] += x*vx;
-    YVy[loc] += y*vy;
-    ZVz[loc] += z*vz;
+    XX[loc] += xrel*xrel;
+    YY[loc] += yrel*yrel;
+    ZZ[loc] += zrel*zrel;
+    XVx[loc] += xrel*vx;
+    YVy[loc] += yrel*vy;
+    ZVz[loc] += zrel*vz;
 }
 
 /*
