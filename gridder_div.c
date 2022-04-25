@@ -32,10 +32,10 @@ const char *get_filename_ext(const char *);
 int offset(int, int, int, int);
 //void NGP(int *, int, float, float, float);
 void NGP(int *,                        // sum of number
-	 float *, float *, float *,    // sum of pos
-	 float *, float *, float *,    // sum of vel
-	 float *, float *, float *,    // sum of pos * pos
-	 float *, float *, float *,    // sum of pos * vel
+	 double *, double *, double *,    // sum of pos
+	 double *, double *, double *,    // sum of vel
+	 double *, double *, double *,    // sum of pos * pos
+	 double *, double *, double *,    // sum of pos * vel
 	 int,                          // size of grid along each axis
 	 float, float, float,          // input grid position
 	 float, float, float,          // input position
@@ -137,39 +137,24 @@ int main (int argc, char **argv) {
     long int grid_size = grid_dims*grid_dims*slice_dim; 	
     char * fullname;
     long long int particle_count = 0;
-    long long int particle_count_slave = 0;
     long long int particle_count_used = 0;
     long long int particle_count_used_total = 0;
-    long long int particle_count_slave_used = 0;
     int *N = calloc(grid_size, sizeof *N);
-    float *X = calloc(grid_size, sizeof *X);
-    float *Y = calloc(grid_size, sizeof *Y);
-    float *Z = calloc(grid_size, sizeof *Z);
-    float *Vx = calloc(grid_size, sizeof *Vx);
-    float *Vy = calloc(grid_size, sizeof *Vy);
-    float *Vz = calloc(grid_size, sizeof *Vz);
-    float *XX = calloc(grid_size, sizeof *XX);
-    float *YY = calloc(grid_size, sizeof *YY);
-    float *ZZ = calloc(grid_size, sizeof *ZZ);
-    float *XVx = calloc(grid_size, sizeof *XVx);
-    float *YVy = calloc(grid_size, sizeof *YVy);
-    float *ZVz = calloc(grid_size, sizeof *ZVz);
-    int *N_slave = calloc(grid_size, sizeof *N);
-    float *X_slave = calloc(grid_size, sizeof *X);
-    float *Y_slave = calloc(grid_size, sizeof *Y);
-    float *Z_slave = calloc(grid_size, sizeof *Z);
-    float *Vx_slave = calloc(grid_size, sizeof *Vx);
-    float *Vy_slave = calloc(grid_size, sizeof *Vy);
-    float *Vz_slave = calloc(grid_size, sizeof *Vz);
-    float *XX_slave = calloc(grid_size, sizeof *XX);
-    float *YY_slave = calloc(grid_size, sizeof *YY);
-    float *ZZ_slave = calloc(grid_size, sizeof *ZZ);
-    float *XVx_slave = calloc(grid_size, sizeof *XVx);
-    float *YVy_slave = calloc(grid_size, sizeof *YVy);
-    float *ZVz_slave = calloc(grid_size, sizeof *ZVz);
+    double *X = calloc(grid_size, sizeof *X);
+    double *Y = calloc(grid_size, sizeof *Y);
+    double *Z = calloc(grid_size, sizeof *Z);
+    double *Vx = calloc(grid_size, sizeof *Vx);
+    double *Vy = calloc(grid_size, sizeof *Vy);
+    double *Vz = calloc(grid_size, sizeof *Vz);
+    double *XX = calloc(grid_size, sizeof *XX);
+    double *YY = calloc(grid_size, sizeof *YY);
+    double *ZZ = calloc(grid_size, sizeof *ZZ);
+    double *XVx = calloc(grid_size, sizeof *XVx);
+    double *YVy = calloc(grid_size, sizeof *YVy);
+    double *ZVz = calloc(grid_size, sizeof *ZVz);
     // diagnostics to check correct sim_size used
-    float xmin_slave, xmin, ymin_slave, ymin, zmin_slave, zmin;
-    float xmax_slave, xmax, ymax_slave, ymax, zmax_slave, zmax;
+    float xmin, ymin, zmin;
+    float xmax, ymax, zmax;
 
     FILE *fp_N, *fp_divx, *fp_divy, *fp_divz;
 #ifndef NO_MPI
@@ -224,8 +209,7 @@ int main (int argc, char **argv) {
 	     */
 	    int rows = dims[0];  // Number of particles?
 	    int cols = dims[1];  // Number of dimensions (=3)?
-	    particle_count_slave += rows;
-	    //printf("%d: %d particles, %lld total\n", i_file, rows, particle_count_slave);
+	    particle_count += rows;
 	    float **data_pos; 
 	    float **data_vel; 
 	    /* 
@@ -261,26 +245,26 @@ int main (int argc, char **argv) {
 	     * This version accumulates quantities needed to calculate the divergence
 	     */
 	    float xgrid, ygrid, zgrid;
-	    xmin_slave=1000.; ymin_slave=1000.; zmin_slave=1000.;
-	    xmax_slave=-1000.; ymax_slave=-1000.; zmax_slave=-1000.;
+	    xmin=1000.; ymin=1000.; zmin=1000.;
+	    xmax=-1000.; ymax=-1000.; zmax=-1000.;
 	    for(j = 0; j < rows; j++){  // loop through data rows
-		xmin_slave=fmin(xmin_slave,data_pos[j][0]);
-		xmax_slave=fmax(xmax_slave,data_pos[j][0]);
-		ymin_slave=fmin(ymin_slave,data_pos[j][1]);
-		ymax_slave=fmax(ymax_slave,data_pos[j][1]);
-		zmin_slave=fmin(zmin_slave,data_pos[j][2]);
-		zmax_slave=fmax(zmax_slave,data_pos[j][2]);
+		xmin=fmin(xmin,data_pos[j][0]);
+		xmax=fmax(xmax,data_pos[j][0]);
+		ymin=fmin(ymin,data_pos[j][1]);
+		ymax=fmax(ymax,data_pos[j][1]);
+		zmin=fmin(zmin,data_pos[j][2]);
+		zmax=fmax(zmax,data_pos[j][2]);
 		xgrid = data_pos[j][0] * ratio; // x grid position
 		if (xgrid<xgrid_min || xgrid>=xgrid_max) continue;
-		particle_count_slave_used++;
+		particle_count_used++;
 		xgrid -= xgrid_min;  // position relative to slice
 		ygrid = data_pos[j][1] * ratio; // y grid position
 		zgrid = data_pos[j][2] * ratio; // z grid position
-		NGP(N_slave,                            // sum of number
-		    X_slave, Y_slave, Z_slave,          // sum of pos
-		    Vx_slave, Vy_slave, Vz_slave,       // sum of vel
-		    XX_slave, YY_slave, ZZ_slave,       // sum of pos * pos
-		    XVx_slave, YVy_slave, ZVz_slave,    // sum of pos * vel
+		NGP(N,                                  // sum of number
+		    X, Y, Z,                            // sum of pos
+		    Vx, Vy, Vz,                         // sum of vel
+		    XX, YY, ZZ,                         // sum of pos * pos
+		    XVx, YVy, ZVz,                      // sum of pos * vel
 		    grid_dims,                          // size of grid along each axis
 		    xgrid, ygrid, zgrid,                // position in grid coordinates
 		    data_pos[j][0], data_pos[j][1], data_pos[j][2],  // input position
@@ -293,42 +277,52 @@ int main (int argc, char **argv) {
 	    free(data_vel);
 	}
 	/* Accumulate sums over all ranks */
-#ifdef NO_MPI
-	N=N_slave;
-	X=X_slave;
-	Y=Y_slave;
-	Z=Z_slave;
-	Vx=Vx_slave;
-	Vy=Vy_slave;
-	Vz=Vz_slave;
-	XX=XX_slave;
-	YY=YY_slave;
-	ZZ=ZZ_slave;
-	XVx=XVx_slave;
-	YVy=YVy_slave;
-	ZVz=ZVz_slave;
-#else
-	MPI_Reduce(&xmin_slave, &xmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&xmax_slave, &xmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&ymin_slave, &ymin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&ymax_slave, &ymax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&zmin_slave, &zmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&zmax_slave, &zmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&particle_count_slave, &particle_count, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&particle_count_slave_used, &particle_count_used, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(N_slave, N, grid_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(X_slave, X, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(Y_slave, Y, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(Z_slave, Z, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(Vx_slave, Vx, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(Vy_slave, Vy, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(Vz_slave, Vz, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(XX_slave, XX, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(YY_slave, YY, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(ZZ_slave, ZZ, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(XVx_slave, XVx, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(YVy_slave, YVy, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(ZVz_slave, ZVz, grid_size, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+#ifndef NO_MPI
+	if(mpi_rank ==0){
+	    MPI_Reduce(MPI_IN_PLACE, &xmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, &xmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, &ymin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, &ymax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, &zmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, &zmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, &particle_count, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, &particle_count_used, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, N, grid_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, X, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, Y, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, Z, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, Vx, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, Vy, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, Vz, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, XX, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, YY, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, ZZ, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, XVx, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, YVy, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(MPI_IN_PLACE, ZVz, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	} else {
+	    MPI_Reduce(&xmin, &xmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(&xmax, &xmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(&ymin, &ymin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(&ymax, &ymax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(&zmin, &zmin, 1, MPI_FLOAT, MPI_MIN, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(&zmax, &zmax, 1, MPI_FLOAT, MPI_MAX, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(&particle_count, &particle_count, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(&particle_count_used, &particle_count_used, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(N, N, grid_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(X, X, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(Y, Y, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(Z, Z, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(Vx, Vx, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(Vy, Vy, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(Vz, Vz, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(XX, XX, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(YY, YY, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(ZZ, ZZ, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(XVx, XVx, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(YVy, YVy, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	    MPI_Reduce(ZVz, ZVz, grid_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	}	    
 	/*
 	 * Now on the master node, we can calculate our statistics and write out
 	 */
@@ -348,9 +342,9 @@ int main (int argc, char **argv) {
 	    /* Calculate divergences: note that these need correcting for Hubble expansion */
 	    /* ****Do I need to use doubles here: difference of two large numbers?*** */
 	    for (i=0; i<grid_size; i++){
-		divx[i] = (N[i]*XVx[i]-X[i]*Vx[i])/(N[i]*XX[i]-X[i]*X[i]);
-		divy[i] = (N[i]*YVy[i]-Y[i]*Vy[i])/(N[i]*YY[i]-Y[i]*Y[i]);
-		divz[i] = (N[i]*ZVz[i]-Z[i]*Vz[i])/(N[i]*ZZ[i]-Z[i]*Z[i]);
+		divx[i] = (float)((N[i]*XVx[i]-X[i]*Vx[i])/(N[i]*XX[i]-X[i]*X[i]));
+		divy[i] = (float)((N[i]*YVy[i]-Y[i]*Vy[i])/(N[i]*YY[i]-Y[i]*Y[i]));
+		divz[i] = (float)((N[i]*ZVz[i]-Z[i]*Vz[i])/(N[i]*ZZ[i]-Z[i]*Z[i]));
 	    }
 	    /*
 	     * Write to output files
@@ -364,41 +358,23 @@ int main (int argc, char **argv) {
 #ifndef NO_MPI
 	}
 #endif
-	/*
-	 * Reset arrays to zero.
-	 * I think sufficient to do this for the slave arrays,but do it for all anyway
-	 */
-	particle_count_slave=0;
-	particle_count_slave_used=0;
+	// Reset arrays to zero.
 	particle_count=0; // Reset each slice
 	particle_count_used=0;
 	for (i=0; i<grid_size; i++) {
-	    N_slave[i]=0;
-	    X_slave[i]=(float)0.;
-	    Y_slave[i]=(float)0.;
-	    Z_slave[i]=(float)0.;
-	    Vx_slave[i]=(float)0.;
-	    Vy_slave[i]=(float)0.;
-	    Vz_slave[i]=(float)0.;
-	    XX_slave[i]=(float)0.;
-	    YY_slave[i]=(float)0.;
-	    ZZ_slave[i]=(float)0.;
-	    XVx_slave[i]=(float)0.;
-	    YVy_slave[i]=(float)0.;
-	    ZVz_slave[i]=(float)0.;
 	    N[i]=0;
-	    X[i]=(float)0.;
-	    Y[i]=(float)0.;
-	    Z[i]=(float)0.;
-	    Vx[i]=(float)0.;
-	    Vy[i]=(float)0.;
-	    Vz[i]=(float)0.;
-	    XX[i]=(float)0.;
-	    YY[i]=(float)0.;
-	    ZZ[i]=(float)0.;
-	    XVx[i]=(float)0.;
-	    YVy[i]=(float)0.;
-	    ZVz[i]=(float)0.;
+	    X[i]=(double)0.;
+	    Y[i]=(double)0.;
+	    Z[i]=(double)0.;
+	    Vx[i]=(double)0.;
+	    Vy[i]=(double)0.;
+	    Vz[i]=(double)0.;
+	    XX[i]=(double)0.;
+	    YY[i]=(double)0.;
+	    ZZ[i]=(double)0.;
+	    XVx[i]=(double)0.;
+	    YVy[i]=(double)0.;
+	    ZVz[i]=(double)0.;
 	}
 	/*
 	 * Update slice counters
@@ -418,20 +394,7 @@ int main (int argc, char **argv) {
 #ifndef NO_MPI
     }
 #endif
-    // Let's be good and free up all the memory, even though the end of the program. 
-    free(N_slave);
-    free(X_slave);
-    free(Y_slave);
-    free(Z_slave);
-    free(Vx_slave);
-    free(Vy_slave);
-    free(Vz_slave);
-    free(XX_slave);
-    free(YY_slave);
-    free(ZZ_slave);
-    free(XVx_slave);
-    free(YVy_slave);
-    free(ZVz_slave);
+    // Let's be good and free up all the memory, even though the end of the program.
     free(N);
     free(X);
     free(Y);
@@ -458,10 +421,10 @@ int main (int argc, char **argv) {
  * Nearest Grid Point assignment
  */
 void NGP(int   *N,                              // sum of number
-	 float *X, float *Y, float *Z,          // sum of pos
-	 float *Vx, float *Vy, float *Vz,       // sum of vel
-	 float *XX, float *YY, float *ZZ,       // sum of pos * pos
-	 float *XVx, float *YVy, float *ZVz,    // sum of pos * vel
+	 double *X, double *Y, double *Z,          // sum of pos
+	 double *Vx, double *Vy, double *Vz,       // sum of vel
+	 double *XX, double *YY, double *ZZ,       // sum of pos * pos
+	 double *XVx, double *YVy, double *ZVz,    // sum of pos * vel
 	 int dims,                              // size of grid along each axis
 	 float xgrid, float ygrid, float zgrid, // input grid position
 	 float x, float y, float z,             // input position
